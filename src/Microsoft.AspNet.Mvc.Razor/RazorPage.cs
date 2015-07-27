@@ -529,42 +529,54 @@ namespace Microsoft.AspNet.Mvc.Razor
             }
             else
             {
+                // Check if the bool value special case applies to this attribute.
+                var applyBoolSpecialCase = ShouldApplyBoolSpecialCase(values);
+
                 for (var i = 0; i < values.Length; i++)
                 {
-                    var attrVal = values[i];
-                    var val = attrVal.Value;
+                    var attributeValue = values[i];
+                    var positionTaggedAttributeValue = attributeValue.Value;
                     var next = i == values.Length - 1 ?
                         suffix : // End of the list, grab the suffix
                         values[i + 1].Prefix; // Still in the list, grab the next prefix
 
-                    if (val.Value == null)
+                    if (positionTaggedAttributeValue.Value == null)
                     {
                         // Nothing to write
                         continue;
                     }
 
                     // The special cases here are that the value we're writing might already be a string, or that the
-                    // value might be a bool. If the value is the bool 'true' we want to write the attribute name
-                    // instead of the string 'true'. If the value is the bool 'false' we don't want to write anything.
+                    // value might be a bool.
+                    // If the value is just the bool 'true', we want to write the attribute name instead of
+                    // the string 'true'.
+                    // If the value is the bool 'false' we don't want to write anything.
+                    // In both cases, we want to retain the surrounding whitespace if present.
                     // Otherwise the value is another object (perhaps an HtmlString) and we'll ask it to format itself.
-                    string stringValue;
+                    string stringValue = null;
 
                     // Intentionally using is+cast here for performance reasons. This is more performant than as+bool?
                     // because of boxing.
-                    if (val.Value is bool)
+                    if (positionTaggedAttributeValue.Value is bool && applyBoolSpecialCase)
                     {
-                        if ((bool)val.Value)
+                        if ((bool)positionTaggedAttributeValue.Value)
                         {
                             stringValue = name;
                         }
                         else
                         {
-                            continue;
+                            if (values.Length == 1)
+                            {
+                                // Nothing other than the bool exists. Skip the whole attribute.
+                                continue;
+                            }
+
+                            stringValue = "";
                         }
                     }
                     else
                     {
-                        stringValue = val.Value as string;
+                        stringValue = positionTaggedAttributeValue.Value as string;
                     }
 
                     if (first)
@@ -573,24 +585,24 @@ namespace Microsoft.AspNet.Mvc.Razor
                         first = false;
                     }
 
-                    if (!string.IsNullOrEmpty(attrVal.Prefix))
+                    if (!string.IsNullOrEmpty(attributeValue.Prefix))
                     {
-                        WritePositionTaggedLiteral(writer, attrVal.Prefix);
+                        WritePositionTaggedLiteral(writer, attributeValue.Prefix);
                     }
 
                     // Calculate length of the source span by the position of the next value (or suffix)
-                    var sourceLength = next.Position - attrVal.Value.Position;
+                    var sourceLength = next.Position - attributeValue.Value.Position;
 
-                    BeginContext(attrVal.Value.Position, sourceLength, isLiteral: attrVal.Literal);
+                    BeginContext(attributeValue.Value.Position, sourceLength, isLiteral: attributeValue.Literal);
                     // The extra branching here is to ensure that we call the Write*To(string) overload where
                     // possible.
-                    if (attrVal.Literal && stringValue != null)
+                    if (attributeValue.Literal && stringValue != null)
                     {
                         WriteLiteralTo(writer, stringValue);
                     }
-                    else if (attrVal.Literal)
+                    else if (attributeValue.Literal)
                     {
-                        WriteLiteralTo(writer, val.Value);
+                        WriteLiteralTo(writer, positionTaggedAttributeValue.Value);
                     }
                     else if (stringValue != null)
                     {
@@ -598,7 +610,7 @@ namespace Microsoft.AspNet.Mvc.Razor
                     }
                     else
                     {
-                        WriteTo(writer, val.Value);
+                        WriteTo(writer, positionTaggedAttributeValue.Value);
                     }
 
                     EndContext();
@@ -619,6 +631,40 @@ namespace Microsoft.AspNet.Mvc.Razor
             }
 
             return _urlHelper.Content(contentPath);
+        }
+
+        private bool ShouldApplyBoolSpecialCase(AttributeValue[] attributeValues)
+        {
+            var foundBool = false;
+            foreach (var attributeValue in attributeValues)
+            {
+                var valueExcludingPrefix = attributeValue.Value.Value;
+                if (valueExcludingPrefix == null)
+                {
+                    continue;
+                }
+                else if (valueExcludingPrefix is bool)
+                {
+                    if (foundBool)
+                    {
+                        // Found more than one bool. Don't apply special case.
+                        return false;
+                    }
+
+                    foundBool = true;
+                }
+                else
+                {
+                    var stringValue = valueExcludingPrefix as string;
+                    if (stringValue != "")
+                    {
+                        // Non boolean value present. Don't apply special case.
+                        return false;
+                    }
+                }
+            }
+
+            return true;
         }
 
         private void WritePositionTaggedLiteral(TextWriter writer, string value, int position)

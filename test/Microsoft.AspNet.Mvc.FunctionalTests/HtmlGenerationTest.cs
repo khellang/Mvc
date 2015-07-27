@@ -575,5 +575,22 @@ Products: Laptops (3)";
             // Assert
             Assert.Equal(expected, response);
         }
+
+        [Fact]
+        public async Task AttributeWithBooleanValues_RendersWithCorrectSpecialCasing()
+        {
+            // Arrange
+            var server = TestHelper.CreateServer(_app, SiteName, _configureServices);
+            var client = server.CreateClient();
+            var outputFile = "compiler/resources/HtmlGenerationWebSite.HtmlGeneration_Home.AttributesWithBooleanValues.html";
+            var expectedContent =
+                await ResourceFile.ReadResourceAsync(_resourcesAssembly, outputFile, sourceFile: false);
+
+            // Act
+            var response = await client.GetStringAsync("http://localhost/HtmlGeneration_Home/AttributesWithBooleanValues");
+
+            // Assert
+            Assert.Equal(expectedContent, response);
+        }
     }
 }
