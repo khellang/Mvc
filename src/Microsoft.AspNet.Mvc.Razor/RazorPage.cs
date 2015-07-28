@@ -519,8 +519,6 @@ namespace Microsoft.AspNet.Mvc.Razor
             [NotNull] PositionTagged<string> suffix,
             params AttributeValue[] values)
         {
-            var first = true;
-            var wroteSomething = false;
             if (values.Length == 0)
             {
                 // Explicitly empty attribute, so write the prefix and suffix
@@ -529,97 +527,52 @@ namespace Microsoft.AspNet.Mvc.Razor
             }
             else
             {
-                // Check if the bool value special case applies to this attribute.
-                var applyBoolSpecialCase = ShouldApplyBoolSpecialCase(values);
-
-                for (var i = 0; i < values.Length; i++)
+                if (values.Length == 1 && values[0].Prefix == "" &&
+                    (values[0].Value.Value is bool || values[0].Value.Value == null))
                 {
-                    var attributeValue = values[i];
-                    var positionTaggedAttributeValue = attributeValue.Value;
-                    var next = i == values.Length - 1 ?
-                        suffix : // End of the list, grab the suffix
-                        values[i + 1].Prefix; // Still in the list, grab the next prefix
+                    var attributeValue = values[0];
+                    var positionTaggedAttributeValue = values[0].Value;
 
-                    if (positionTaggedAttributeValue.Value == null)
+                    if (positionTaggedAttributeValue.Value == null || !(bool)positionTaggedAttributeValue.Value)
                     {
-                        // Nothing to write
-                        continue;
+                        // The value is null or just the bool 'false', don't write anything.
+                        return;
                     }
 
-                    // The special cases here are that the value we're writing might already be a string, or that the
-                    // value might be a bool.
-                    // If the value is just the bool 'true', we want to write the attribute name instead of
-                    // the string 'true'.
-                    // If the value is the bool 'false' we don't want to write anything.
-                    // In both cases, we want to retain the surrounding whitespace if present.
-                    // Otherwise the value is another object (perhaps an HtmlString) and we'll ask it to format itself.
-                    string stringValue = null;
+                    WritePositionTaggedLiteral(writer, prefix);
 
-                    // Intentionally using is+cast here for performance reasons. This is more performant than as+bool?
-                    // because of boxing.
-                    if (positionTaggedAttributeValue.Value is bool && applyBoolSpecialCase)
+                    // The value is just the bool 'true', write the attribute name instead of the string 'true'.
+                    WriteAttributeValue(writer, attributeValue, name, suffix.Position);
+                }
+                else
+                {
+                    WritePositionTaggedLiteral(writer, prefix);
+                    for (var i = 0; i < values.Length; i++)
                     {
-                        if ((bool)positionTaggedAttributeValue.Value)
-                        {
-                            stringValue = name;
-                        }
-                        else
-                        {
-                            if (values.Length == 1)
-                            {
-                                // Nothing other than the bool exists. Skip the whole attribute.
-                                continue;
-                            }
+                        var attributeValue = values[i];
+                        var positionTaggedAttributeValue = attributeValue.Value;
+                        var next = i == values.Length - 1 ?
+                            suffix : // End of the list, grab the suffix
+                            values[i + 1].Prefix; // Still in the list, grab the next prefix
 
-                            stringValue = "";
+                        if (positionTaggedAttributeValue.Value == null)
+                        {
+                            // Nothing to write
+                            continue;
                         }
-                    }
-                    else
-                    {
+
+                        string stringValue = null;
+
                         stringValue = positionTaggedAttributeValue.Value as string;
-                    }
 
-                    if (first)
-                    {
-                        WritePositionTaggedLiteral(writer, prefix);
-                        first = false;
-                    }
+                        // Calculate length of the source span by the position of the next value (or suffix)
+                        var sourceLength = next.Position - attributeValue.Value.Position;
 
-                    if (!string.IsNullOrEmpty(attributeValue.Prefix))
-                    {
-                        WritePositionTaggedLiteral(writer, attributeValue.Prefix);
+                        WriteAttributeValue(writer, attributeValue, stringValue, sourceLength);
                     }
-
-                    // Calculate length of the source span by the position of the next value (or suffix)
-                    var sourceLength = next.Position - attributeValue.Value.Position;
-
-                    BeginContext(attributeValue.Value.Position, sourceLength, isLiteral: attributeValue.Literal);
-                    // The extra branching here is to ensure that we call the Write*To(string) overload where
-                    // possible.
-                    if (attributeValue.Literal && stringValue != null)
-                    {
-                        WriteLiteralTo(writer, stringValue);
-                    }
-                    else if (attributeValue.Literal)
-                    {
-                        WriteLiteralTo(writer, positionTaggedAttributeValue.Value);
-                    }
-                    else if (stringValue != null)
-                    {
-                        WriteTo(writer, stringValue);
-                    }
-                    else
-                    {
-                        WriteTo(writer, positionTaggedAttributeValue.Value);
-                    }
-
-                    EndContext();
-                    wroteSomething = true;
                 }
-                if (wroteSomething)
-                {
-                    WritePositionTaggedLiteral(writer, suffix);
-                }
+
+                WritePositionTaggedLiteral(writer, suffix);
             }
         }
 
@@ -633,38 +586,40 @@ namespace Microsoft.AspNet.Mvc.Razor
             return _urlHelper.Content(contentPath);
         }
 
-        private bool ShouldApplyBoolSpecialCase(AttributeValue[] attributeValues)
+        private void WriteAttributeValue(
+            TextWriter writer,
+            AttributeValue attributeValue,
+            string stringValue,
+            int sourceLength)
         {
-            var foundBool = false;
-            foreach (var attributeValue in attributeValues)
-            {
-                var valueExcludingPrefix = attributeValue.Value.Value;
-                if (valueExcludingPrefix == null)
-                {
-                    continue;
-                }
-                else if (valueExcludingPrefix is bool)
-                {
-                    if (foundBool)
-                    {
-                        // Found more than one bool. Don't apply special case.
-                        return false;
-                    }
+            var positionTaggedAttributeValue = attributeValue.Value;
 
-                    foundBool = true;
-                }
-                else
-                {
-                    var stringValue = valueExcludingPrefix as string;
-                    if (stringValue != "")
-                    {
-                        // Non boolean value present. Don't apply special case.
-                        return false;
-                    }
-                }
+            if (!string.IsNullOrEmpty(attributeValue.Prefix))
+            {
+                WritePositionTaggedLiteral(writer, attributeValue.Prefix);
             }
 
-            return true;
+            BeginContext(attributeValue.Value.Position, sourceLength, isLiteral: attributeValue.Literal);
+            // The extra branching here is to ensure that we call the Write*To(string) overload where
+            // possible.
+            if (attributeValue.Literal && stringValue != null)
+            {
+                WriteLiteralTo(writer, stringValue);
+            }
+            else if (attributeValue.Literal)
+            {
+                WriteLiteralTo(writer, positionTaggedAttributeValue.Value);
+            }
+            else if (stringValue != null)
+            {
+                WriteTo(writer, stringValue);
+            }
+            else
+            {
+                WriteTo(writer, positionTaggedAttributeValue.Value);
+            }
+
+            EndContext();
         }
 
         private void WritePositionTaggedLiteral(TextWriter writer, string value, int position)

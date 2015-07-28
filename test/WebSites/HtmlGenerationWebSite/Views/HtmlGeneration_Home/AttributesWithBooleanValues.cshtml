@@ -2,6 +2,7 @@
     var trueVar = true;
     var falseVar = false;
     var stringVar = "value";
+    string nullVar = null;
 }
 <input checked="@true" />
 <input checked="@trueVar" />
@@ -13,3 +14,7 @@
 <input checked="    value: @false   " />
 <input checked="@true @trueVar" />
 <input checked="   @falseVar  @true" />
+<input checked="@null" />
+<input checked="  @nullVar" />
+<input checked="@nullVar   " />
+<input checked="  @null @stringVar @trueVar" />
